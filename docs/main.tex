@@ -12,21 +12,16 @@
 \maketitle
 \section{Project Specification}
 
-Project specification document (1--2 pages, due 04/02) outlining:
+This report outlines our project plan for implementing mapreduce with GPU integration for handling large workloads.
 
 \subsection{Goal}
-a clear, specific, measurable technical goal you can realistically achieve by the end of the semester;
-existing prior work towards this goal;
+At the end of the semester, the team wants to demonstrate that combining mapreduce and a GPU is beneficial and reduce the runtime for certain operations like counting.
 
 \subsection{Description}
-a description of how your project is novel, different, and/or builds on this prior work (there must be something new about what you do, however minor or incremental; just state it precisely);
+This builds on the mapreduce framework designed at Google for clustering commodity hardware \cite{mapreduce}. Since then, we have seen the increase in need for more computing power for answering queries and training machine learning models. We feel that creating a framework that combines mapreduce and GPU will improved system design in the future and leverage both commodity hardware and advanced chips. 
 
 \subsection{Outline}
-a brief outline of the key technical idea or approach you intend to implement (it is suitable to draw system diagrams, list existing libraries and software you will use, etc.);
-
-\subsection{Measurements}
-a set of empirical, quantitative, and/or qualitative metrics you will evaluate your project on, and the methods you will use for your evaluation; and
-any foreseen risks that may prevent you from achieving your stated goal.
+The technical requirements are using CUDA which is the programming language designed specifically for operating on a NVIDIA GPU. That is combined with the technical details for mapreduce that are outlined in the paper \cite{mapreduce} and shown in Figure 1. 
 
 \begin{figure}[ht]
     \centering
@@ -34,6 +29,14 @@ any foreseen risks that may prevent you from achieving your stated goal.
     \caption{MapReduce \cite{mapreduce}}
     \label{fig:chroot}
 \end{figure}
+
+The combination of the two will require managing the load between the CPU and GPU since the data is exchanged between the two processors. That part will require optimization and an appropriate split.
+
+\subsection{Measurements}
+The team is going to measure the performance of various workloads on the system for measuring the overall effectiveness. The measurements will show the difference between running mapreduce on a CPU and then a CPU and a GPU. The measurements should challenge the hypothesis that combining mapreduce and a GPU is valuable and reducing processing time. 
+
+\subsection{Risk}
+The risk is getting the hardware required for completing this project since GPUs are in demand and CUDA is a proprietary language with limited capabilities. The experiment relies heavily on the configuration between mapreduce and NVIDIA GPU. 
 
 \begin{thebibliography}{}
 \raggedright
