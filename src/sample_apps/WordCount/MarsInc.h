@@ -26,7 +26,6 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <cutil.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <string.h>
@@ -48,6 +47,24 @@
 #define BLOCK_ID (gridDim.y * blockIdx.x + blockIdx.y)
 #define THREAD_ID (threadIdx.x)
 #define TID (BLOCK_ID * blockDim.x + THREAD_ID)
+
+#define CUDA_SAFE_CALL(call) do {\
+		cudaError_t err = call;\                                       
+		if (err != cudaSuccess) {\
+			fprintf(stderr, "CUDA error at %s:%d: %s\n",\  
+				__FILE__, __LINE__, cudaGetErrorString(err));\
+			exit(EXIT_FAILURE);\
+			}\
+	} while (0)
+
+#define CUT_CHECK_ERROR(label) do {\
+	    cudaError_t err = cudaGetLastError();\
+	    if (err != cudaSuccess) {\
+		            fprintf(stderr, "CUDA error after %s: %s\n", label, cudaGetErrorString(err)); \
+		            exit(EXIT_FAILURE);\
+		        }\
+} while (0)
+
 
 //------------------------------------------------------
 //MarsScan.cu
