@@ -1,5 +1,8 @@
 # mapreduce
 # about
+
+A mapreduce implementation using Mars and building on existing research in optimizing MapReduce on GPUs.
+
 # commands
 # examples
 # version

@@ -13,7 +13,7 @@
 #you must setup correct $SDK_PATH
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #SDK_PATH="$HOME/CUDA_SDK"
-SDK_PATH="/home/wenbin/CUDA_SDK"
+SDK_PATH="/usr/local/cuda"
 
 SDK_BIN_PATH="$SDK_PATH/C/bin/linux/release"
 SDK_SRC_PATH="$SDK_PATH/C/sample_apps"
