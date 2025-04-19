@@ -39,7 +39,8 @@ void startTimer(TimeVal_t *start_tv)
 //--------------------------------------------------------
 void endTimer(char *msg, TimeVal_t *start_tv)
 {
-	cudaThreadSynchronize();
+   
+   cudaDeviceSynchronize();
    struct timeval end_tv;
 
    gettimeofday(&end_tv, NULL);
