@@ -1,5 +1,7 @@
 https://developer.nvidia.com/cuda-downloads?target_os=Windows&target_arch=x86_64&target_version=10&target_type=exe_local
 https://docs.nvidia.com/cuda/cuda-c-programming-guide/contents.html
+https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY__POOLS.html
+https://www.olcf.ornl.gov/cuda-training-series/
 
 Windows:
 
