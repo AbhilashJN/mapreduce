@@ -23,6 +23,65 @@
 #include "map.cu"
 #include "reduce.cu"
 
+//-------------------------------------------------------
+// Chunked MapReduce Support (>128MB)
+//-------------------------------------------------------
+
+#include <algorithm>  // For std::min
+
+const size_t THRESHOLD_SIZE = 128 * 1024 * 1024;  // 128MB threshold
+const size_t CHUNK_SIZE     = 512 * 1024 * 1024;  // 512MB per chunk
+
+#if USE_ASYNC
+extern "C"
+void ProcessChunkAsync(char* d_filebuf, char* h_filebuf, size_t offset, size_t chunkSize, cudaStream_t stream)
+{
+    CUDA_SAFE_CALL(cudaMemcpyAsync(d_filebuf, h_filebuf + offset, chunkSize, cudaMemcpyHostToDevice, stream));
+    LaunchMapReduceChunk(d_filebuf, chunkSize, stream);
+}
+
+extern "C"
+void LaunchMapReduceChunk(char* d_data, size_t chunkSize, cudaStream_t stream)
+{
+    Spec_t* spec = GetDefaultSpec();
+    spec->workflow = MAP_GROUP;   // or MAP_ONLY if needed
+    spec->inputKeys = d_data;
+    spec->inputVals = NULL;
+    spec->inputOffsetSizes = NULL;
+    spec->inputRecordCount = 0;
+
+    InitMapReduce(spec);
+    startMap(spec);
+    startGroup(spec);
+}
+
+#else
+
+extern "C"
+void ProcessChunkBlocking(char* d_filebuf, char* h_filebuf, size_t offset, size_t chunkSize)
+{
+    CUDA_SAFE_CALL(cudaMemcpy(d_filebuf, h_filebuf + offset, chunkSize, cudaMemcpyHostToDevice));
+    LaunchMapReduceChunk(d_filebuf, chunkSize);
+}
+
+extern "C"
+void LaunchMapReduceChunk(char* d_data, size_t chunkSize)
+{
+    Spec_t* spec = GetDefaultSpec();
+    spec->workflow = MAP_GROUP;
+    spec->inputKeys = d_data;
+    spec->inputVals = NULL;
+    spec->inputOffsetSizes = NULL;
+    spec->inputRecordCount = 0;
+
+    InitMapReduce(spec);
+    startMap(spec);
+    startGroup(spec);
+}
+
+#endif
+
+
 //----------------------------------------------
 //Get default runtime configuration
 //
