@@ -3,11 +3,17 @@
 #include <ctype.h>
 #include <cuda_runtime_api.h>
 #include <cuda.h>
+#include <algorithm>
+#include <string.h>
 
 #define __OUTPUT__
 
 // Toggle between original and async version
 #define USE_ASYNC 1
+
+// Chunking thresholds
+const size_t THRESHOLD_SIZE = 128 * 1024 * 1024; // 128MB
+const size_t CHUNK_SIZE = 512 * 1024 * 1024;     // 512MB
 
 void validate(char* h_filebuf, Spec_t* spec, int num)
 {
@@ -25,6 +31,29 @@ void validate(char* h_filebuf, Spec_t* spec, int num)
         char* word = key + keyOffset;
         int wordsize = *(int*)(val + valOffset);
         printf("%s - size: %d - count: %d\n", word, wordsize, range[i].y - range[i].x);
+    }
+}
+
+//--------------------------------------------------------
+// Copy a chunk's output and add to globalSpec input
+//--------------------------------------------------------
+void accumulateChunkOutputToGlobal(Spec_t* chunkSpec, Spec_t* globalSpec)
+{
+    char* keys = (char*)chunkSpec->outputKeys;
+    char* vals = (char*)chunkSpec->outputVals;
+    int4* offsetSizes = (int4*)chunkSpec->outputOffsetSizes;
+    int2* keyListRange = (int2*)chunkSpec->outputKeyListRange;
+    int wordCount = chunkSpec->outputDiffKeyCount;
+
+    for (int i = 0; i < wordCount; i++)
+    {
+        int keyOffset = offsetSizes[keyListRange[i].x].x;
+        int valOffset = offsetSizes[keyListRange[i].x].z;
+        char* word = keys + keyOffset;
+        int count = keyListRange[i].y - keyListRange[i].x;
+
+        // Add to the new Spec_t
+        AddMapInputRecord(globalSpec, word, &count, strlen(word)+1, sizeof(int));
     }
 }
 
@@ -46,15 +75,9 @@ int main(int argc, char** argv)
     printf("Running in ORIGINAL mode (cudaMalloc + cudaMemcpy + malloc)\n");
 #endif
 
-    Spec_t* spec = GetDefaultSpec();
-    spec->workflow = MAP_GROUP;
-#ifdef __OUTPUT__
-    spec->outputToHost = 1;
-#endif
-
     FILE* fp = fopen(argv[1], "r");
     fseek(fp, 0, SEEK_END);
-    int fileSize = ftell(fp) + 1;
+    size_t fileSize = ftell(fp) + 1;
     rewind(fp);
 
     // Host buffer allocation
@@ -67,91 +90,198 @@ int main(int argc, char** argv)
     fread(h_filebuf, fileSize, 1, fp);
     fclose(fp);
 
-    // Device buffer allocation
-    char* d_filebuf = NULL;
-#if USE_ASYNC
-    cudaMallocAsync((void**)&d_filebuf, fileSize, stream);
-#else
-    cudaMalloc((void**)&d_filebuf, fileSize);
-#endif
-
-    WC_KEY_T key;
-    key.file = d_filebuf;
-
-    for (int i = 0; i < fileSize; i++)
+    // Uppercase all characters
+    for (size_t i = 0; i < fileSize; i++)
         h_filebuf[i] = toupper(h_filebuf[i]);
 
-    WC_VAL_T val;
-    int offset = 0;
-    char* p = h_filebuf;
-    char* start = h_filebuf;
+    // Global collector Spec for all chunk outputs
+    Spec_t* globalSpec = GetDefaultSpec();
+    globalSpec->workflow = MAP_GROUP;
+#ifdef __OUTPUT__
+    globalSpec->outputToHost = 1;
+#endif
 
-    while (1)
+    //----------------------------------------------
+    // SMALL FILE PATH
+    //----------------------------------------------
+    if (fileSize <= THRESHOLD_SIZE)
     {
-        int blockSize = 2048;
-        if (offset + blockSize > fileSize) blockSize = fileSize - offset;
-        p += blockSize;
-        for (; *p >= 'A' && *p <= 'Z'; p++);
+        Spec_t* spec = GetDefaultSpec();
+        spec->workflow = MAP_GROUP;
+#ifdef __OUTPUT__
+        spec->outputToHost = 1;
+#endif
 
-        if (*p != '\0')
+        // Device memory
+        char* d_filebuf = NULL;
+#if USE_ASYNC
+        cudaMallocAsync((void**)&d_filebuf, fileSize, stream);
+        cudaMemcpyAsync(d_filebuf, h_filebuf, fileSize, cudaMemcpyHostToDevice, stream);
+        cudaStreamSynchronize(stream);
+#else
+        cudaMalloc((void**)&d_filebuf, fileSize);
+        cudaMemcpy(d_filebuf, h_filebuf, fileSize, cudaMemcpyHostToDevice);
+#endif
+
+        // Prepare input records
+        WC_KEY_T key;
+        key.file = d_filebuf;
+        WC_VAL_T val;
+        int offset = 0;
+        char* p = h_filebuf;
+        char* start = h_filebuf;
+
+        while (1)
         {
-            *p = '\0';
-            ++p;
-            blockSize = (int)(p - start);
-            val.line_offset = offset;
-            val.line_size = blockSize;
-            AddMapInputRecord(spec, &key, &val, sizeof(WC_KEY_T), sizeof(WC_VAL_T));
-            offset += blockSize;
-            start = p;
+            int blockSize = 2048;
+            if (offset + blockSize > fileSize) blockSize = fileSize - offset;
+            p += blockSize;
+            for (; *p >= 'A' && *p <= 'Z'; p++);
+
+            if (*p != '\0')
+            {
+                *p = '\0';
+                ++p;
+                blockSize = (int)(p - start);
+                val.line_offset = offset;
+                val.line_size = blockSize;
+                AddMapInputRecord(spec, &key, &val, sizeof(WC_KEY_T), sizeof(WC_VAL_T));
+                offset += blockSize;
+                start = p;
+            }
+            else
+            {
+                *p = '\0';
+                blockSize = (int)(fileSize - offset);
+                val.line_offset = offset;
+                val.line_size = blockSize;
+                AddMapInputRecord(spec, &key, &val, sizeof(WC_KEY_T), sizeof(WC_VAL_T));
+                break;
+            }
         }
-        else
+
+        //----------------------------------------------
+        MapReduce(spec);
+
+#ifdef __OUTPUT__
+        validate(h_filebuf, spec, 10);
+#endif
+
+        FinishMapReduce(spec);
+
+#if USE_ASYNC
+        cudaFreeAsync(d_filebuf, stream);
+#else
+        cudaFree(d_filebuf);
+#endif
+    }
+    //----------------------------------------------
+    // LARGE FILE PATH: Chunked
+    //----------------------------------------------
+    else
+    {
+        printf("Large file detected (size: %zu bytes), using chunked processing\n", fileSize);
+
+        // Allocate device buffer
+        char* d_filebuf = NULL;
+#if USE_ASYNC
+        cudaMallocAsync((void**)&d_filebuf, CHUNK_SIZE, stream);
+#else
+        cudaMalloc((void**)&d_filebuf, CHUNK_SIZE);
+#endif
+
+        size_t offset = 0;
+        while (offset < fileSize)
         {
-            *p = '\0';
-            blockSize = (int)(fileSize - offset);
-            val.line_offset = offset;
-            val.line_size = blockSize;
-            AddMapInputRecord(spec, &key, &val, sizeof(WC_KEY_T), sizeof(WC_VAL_T));
-            break;
+            size_t currentChunkSize = std::min(CHUNK_SIZE, fileSize - offset);
+
+            // Allocate chunk spec
+            Spec_t* chunkSpec = GetDefaultSpec();
+            chunkSpec->workflow = MAP_GROUP;
+            chunkSpec->outputToHost = 1;
+
+            // Prepare chunk input records
+            WC_KEY_T key;
+            key.file = d_filebuf;
+            WC_VAL_T val;
+            char* p = h_filebuf + offset;
+            char* start = p;
+            size_t chunkEnd = offset + currentChunkSize;
+
+            int localOffset = offset;
+            while (p < h_filebuf + chunkEnd)
+            {
+                int blockSize = 2048;
+                if (p + blockSize > h_filebuf + chunkEnd)
+                    blockSize = (h_filebuf + chunkEnd) - p;
+                p += blockSize;
+                for (; *p >= 'A' && *p <= 'Z'; p++);
+
+                if (*p != '\0' && p < h_filebuf + chunkEnd)
+                {
+                    *p = '\0';
+                    ++p;
+                    blockSize = (int)(p - start);
+                    val.line_offset = start - h_filebuf;
+                    val.line_size = blockSize;
+                    AddMapInputRecord(chunkSpec, &key, &val, sizeof(WC_KEY_T), sizeof(WC_VAL_T));
+                    start = p;
+                }
+                else
+                {
+                    *p = '\0';
+                    blockSize = (h_filebuf + chunkEnd) - start;
+                    val.line_offset = start - h_filebuf;
+                    val.line_size = blockSize;
+                    AddMapInputRecord(chunkSpec, &key, &val, sizeof(WC_KEY_T), sizeof(WC_VAL_T));
+                    break;
+                }
+            }
+
+            // Copy and MapReduce the chunk
+#if USE_ASYNC
+            cudaMemcpyAsync(d_filebuf, h_filebuf + offset, currentChunkSize, cudaMemcpyHostToDevice, stream);
+            cudaStreamSynchronize(stream);
+#else
+            cudaMemcpy(d_filebuf, h_filebuf + offset, currentChunkSize, cudaMemcpyHostToDevice);
+#endif
+            MapReduce(chunkSpec);
+
+            // Accumulate output into globalSpec
+            accumulateChunkOutputToGlobal(chunkSpec, globalSpec);
+
+            FinishMapReduce(chunkSpec);
+
+            offset += currentChunkSize;
         }
+
+#if USE_ASYNC
+        cudaFreeAsync(d_filebuf, stream);
+#else
+        cudaFree(d_filebuf);
+#endif
+
+        //----------------------------------------------
+        // Final global MapReduce pass
+        //----------------------------------------------
+        printf("Performing final aggregation MapReduce across all chunk outputs...\n");
+        MapReduce(globalSpec);
+
+#ifdef __OUTPUT__
+        validate((char*)globalSpec->outputKeys, globalSpec, 10);
+#endif
+
+        FinishMapReduce(globalSpec);
     }
 
     //----------------------------------------------
-    // GPU Memory Copy
+    // Cleanup
     //----------------------------------------------
 #if USE_ASYNC
-    cudaMemcpyAsync(d_filebuf, h_filebuf, fileSize, cudaMemcpyHostToDevice, stream);
-    cudaStreamSynchronize(stream);
-#else
-    cudaMemcpy(d_filebuf, h_filebuf, fileSize, cudaMemcpyHostToDevice);
-#endif
-
-    //----------------------------------------------
-    // MapReduce work
-    //----------------------------------------------
-    MapReduce(spec);
-
-#ifdef __OUTPUT__
-#if USE_ASYNC
-    cudaMemcpyAsync(h_filebuf, d_filebuf, fileSize, cudaMemcpyDeviceToHost, stream);
-    cudaStreamSynchronize(stream);
-#else
-    cudaMemcpy(h_filebuf, d_filebuf, fileSize, cudaMemcpyDeviceToHost);
-#endif
-    validate(h_filebuf, spec, 10);
-#endif
-
-    //----------------------------------------------
-    // Finish
-    //----------------------------------------------
-    FinishMapReduce(spec);
-
-#if USE_ASYNC
-    cudaFreeAsync(d_filebuf, stream);
     cudaStreamDestroy(stream);
-    cudaFreeHost(h_filebuf);  // Free pinned memory
+    cudaFreeHost(h_filebuf);
 #else
-    cudaFree(d_filebuf);
-    free(h_filebuf);          // Free regular memory
+    free(h_filebuf);
 #endif
 
     return 0;
