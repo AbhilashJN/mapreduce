@@ -308,6 +308,28 @@ void MakeMapInput(Spec_t *spec,
 		  int threadNum,
 		  void *other);
 
+//------------------------------------------------------
+// Chunked MapReduce support (Larger than Device memory support >128MB)
+//------------------------------------------------------
+
+#ifndef USE_ASYNC
+#define USE_ASYNC 0
+#endif
+
+#if USE_ASYNC
+extern "C"
+void ProcessChunkAsync(char* d_filebuf, char* h_filebuf, size_t offset, size_t chunkSize, cudaStream_t stream);
+
+extern "C"
+void LaunchMapReduceChunk(char* d_data, size_t chunkSize, cudaStream_t stream);
+#else
+extern "C"
+void ProcessChunkBlocking(char* d_filebuf, char* h_filebuf, size_t offset, size_t chunkSize);
+
+extern "C"
+void LaunchMapReduceChunk(char* d_data, size_t chunkSize);
+#endif
+
 //-------------------------------------------------------
 //MarsUtils.cu
 //-------------------------------------------------------
