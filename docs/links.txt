@@ -1,6 +1,6 @@
 https://developer.nvidia.com/cuda-downloads?target_os=Windows&target_arch=x86_64&target_version=10&target_type=exe_local
 https://docs.nvidia.com/cuda/cuda-c-programming-guide/contents.html
-
+https://nyu-cds.github.io/python-gpu/02-cuda/
 
 Windows:
 
