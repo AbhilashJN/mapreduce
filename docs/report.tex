@@ -30,16 +30,34 @@ This work builds on the MapReduce framework originally designed at Google for cl
 
 We will build upon the Mars framework \cite{mars}, a GPU-based MapReduce platform, and extend it to handle larger datasets exceeding device memory, using chunked processing and aggregation techniques.
 
-\subsection{Control Flow}
+\subsection{Pipeline}
 The technical requirements include the CUDA programming language, designed for NVIDIA GPUs \cite{cuda_docs}. Our system will incorporate:
 \begin{itemize}
-    \item Host-side preprocessing to generate key-value pairs.
+    \item Host processing to generate key-value pairs.
     \item Data transfer between CPU and GPU using pinned memory and asynchronous copies \cite{cuda_mem_pool}.
     \item Handling datasets larger than device memory via chunking and global aggregation.
-    \item Two-stage MapReduce: \textit{(1) Chunk processing}, \textit{(2) Global aggregation.}
+    \item Two-stage processing: \textit{(1) Each chunk is allocated a stream}, \textit{(2) Global aggregation once the stream is complete asynchronously with the CPU.}
 \end{itemize}
 
-The combination of these features allows better memory management and throughput when operating on large datasets. The entire operation is completed in the Mars framework. 
+The combination of these features allows better memory management and throughput when operating on large datasets. The entire operation is completed in the Mars framework.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=.8\linewidth]{./images/async.png}
+    \caption{Pipeline \cite{pipeline}}
+    \label{fig:async}
+\end{figure}
+
+\subsection{Streams}
+
+\paragraph{Chucking} The input dataset is divided into contiguous chunks that fit into device memory. Each chunk is processed sequentially: assigned a stream when the queue is free, MapReduce execution, and result collection on the host, using blocking memory copies.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=1\linewidth]{./images/mapreduce.png}
+    \caption{MapReduce Framework \cite{mapreduce}}
+    \label{fig:mapreduce}
+\end{figure}
 
 \subsection{Memory Management Techniques}
 Our project considers several memory management strategies to optimize data transfer between the CPU and GPU.
@@ -51,32 +69,9 @@ Our project considers several memory management strategies to optimize data tran
     \label{fig:mapreduce}
 \end{figure}
 
-\paragraph{Pageable Memory} Pageable (or non-pinned) memory is allocated using traditional system functions such as \texttt{malloc}. Transfers between pageable host memory and device memory use \texttt{cudaMemcpy} and are synchronous, meaning the CPU is blocked until the copy is complete. Pageable memory is managed by the operating system and can be paged out to disk, introducing transfer latency.
-
-\paragraph{Pinned (Page-Locked) Memory} Pinned memory is allocated using \texttt{cudaMallocHost}, ensuring that the memory remains resident in physical RAM and is not swapped to disk. Pinned memory enables faster transfer speeds and allows for truly asynchronous memory copies using \texttt{cudaMemcpyAsync}. However, it consumes valuable physical memory and should be used selectively \cite{cuda_forum_async}.
+\paragraph{Pinned Memory} Pinned memory is allocated using \texttt{cudaMallocHost}, ensuring that the memory remains resident in physical RAM and is not swapped to disk. Pinned memory enables faster transfer speeds and allows for truly asynchronous memory copies using \texttt{cudaMemcpyAsync}. However, it consumes valuable physical memory and should be used selectively \cite{cuda_forum_async}.
 
 \paragraph{Asynchronous Transfers} Asynchronous memory copies using \texttt{cudaMemcpyAsync} enable overlapping of data transfers and kernel execution, improving GPU utilization. Asynchronous copies require pinned memory to be effective and operate through CUDA streams, providing better concurrency between computation and communication.
-
-\subsection{Chunking Strategies}
-Our approach distinguishes between two types of chunking strategies depending on the dataset size.
-
-\paragraph{Basic Chunking} The input dataset is divided into contiguous chunks that fit into device memory. Each chunk is processed sequentially: transfer from host to device, MapReduce execution, and result collection, using blocking memory copies.
-
-\paragraph{Advanced Chunking with Async} For larger datasets, we implement an optimized chunking strategy:
-\begin{itemize}
-    \item Allocate pinned host memory and use asynchronous device memory pools \cite{cuda_mem_pool}.
-    \item Utilize multiple CUDA streams to overlap data transfers and computation.
-    \item Pipeline chunk loading, MapReduce execution, and output collection for maximum concurrency.
-\end{itemize}
-
-Our implementation supports both strategies, automatically selecting the advanced method when the dataset exceeds a configurable device memory threshold.
-
-\begin{figure}[ht]
-    \centering
-    \includegraphics[width=1\linewidth]{./images/mapreduce.png}
-    \caption{MapReduce Framework \cite{mapreduce}}
-    \label{fig:mapreduce}
-\end{figure}
 
 \subsection{Measurements}
 We will benchmark the performance of various workloads by measuring:
@@ -188,6 +183,9 @@ This makes our system closer to production-grade MapReduce frameworks capable of
 
 \bibitem{mapreduce}
 J. Dean and S. Ghemawat, \textit{MapReduce: Simplified Data Processing on Large Clusters}. \href{https://dl.acm.org/doi/10.1145/1327452.1327492}{https://dl.acm.org/doi/10.1145/1327452.1327492}
+
+\bibitem{pipeline}
+S. Rennich, \textit{CUDA C/C++ Streams and Concurrency}. \href{https://developer.download.nvidia.com/CUDA/training/StreamsAndConcurrencyWebinar.pdf}{https://developer.download.nvidia.com/CUDA/training/StreamsAndConcurrencyWebinar.pdf}
 
 \bibitem{mars}
 B. He, W. Fang, Q. Luo, N. Govindaraju, and T. Wang, \textit{Mars: A MapReduce Framework on Graphics Processors}. \href{https://dl.acm.org/doi/10.1145/1454115.1454152}{https://dl.acm.org/doi/10.1145/1454115.1454152}

@@ -4,7 +4,7 @@ https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY__POOLS.html
 https://www.olcf.ornl.gov/cuda-training-series/
 https://forums.developer.nvidia.com/t/confusion-about-synchronization-or-asynchronization-of-cudamemcpy-and-cudamemcpyasync/276826/4
 https://pytorch.org/tutorials/intermediate/pinmem_nonblock.html
-
+https://nyu-cds.github.io/python-gpu/02-cuda/
 
 Windows:
 
