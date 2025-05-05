@@ -78,7 +78,6 @@ The Mars framework operates in 8 main stages.
     \item Combine/Reduce: Using the sorted key-value pairs, combine the count values for all key-value pairs with the same key.
 \end{enumerate}
 
-
 \subsection{Our design improvements} \label{our-improved-design}
 \subsubsection{Efficient pre-computation of output memory offsets}
 For the computation of offsets in stage 5 (refer section \ref{mars-design-summary}), Mars uses a self-implemented prefix-sum based approach. This approach allocates a new array in GPU memory to hold the prefix sums at each index.
